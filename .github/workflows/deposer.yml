@@ -1,0 +1,38 @@
+name: Déposer une vidéo à publier
+
+on:
+  workflow_dispatch:
+    inputs:
+      match: { description: "Numéro du match", required: true }
+
+concurrency: depot-videos
+
+permissions:
+  contents: write
+
+jobs:
+  deposer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Télécharger la vidéo depuis la release privée
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          MATCH: ${{ inputs.match }}
+        run: |
+          [[ "$MATCH" =~ ^[0-9]{1,4}$ ]] || { echo "numéro de match invalide"; exit 1; }
+          TAG=$(printf "match-%03d" "$MATCH")
+          ID=$(gh api "repos/mouha090/ligue-de-papier/releases/tags/$TAG" --jq '.assets[] | select(.name=="video.mp4") | .id')
+          [ -n "$ID" ] || { echo "vidéo introuvable pour $TAG"; exit 1; }
+          gh api -H "Accept: application/octet-stream" "repos/mouha090/ligue-de-papier/releases/assets/$ID" > "videos/$TAG.mp4"
+          test "$(stat -c %s "videos/$TAG.mp4")" -gt 100000
+      - name: Publier sur le site
+        env:
+          MATCH: ${{ inputs.match }}
+        run: |
+          git config user.name "Ligue de Papier"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add videos/
+          git diff --cached --quiet || git commit -m "Vidéo du match $MATCH"
+          git push
